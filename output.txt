@@ -1,0 +1,41 @@
+1|0.99|MIA|wandered|PARK
+1|0.99|MIA|wandered|SUNNY
+1|0.91|girl|named|MIA
+3|0.97|MIA|skipped|path
+3|0.95|MIA|heard|WHIMPERING
+3|0.95|MIA|heard|MIA
+4|0.95|MIA|followed|WHIMPERING
+4|0.95|MIA|followed|MIA
+4|0.95|MIA|followed|WAGGED
+4|0.93|MIA|found|WAGGED
+4|0.93|WAGGED|curled up|bench
+5|0.88|WAGGED|looked up|MIA
+6|0.87|WAGGED|asked|MIA
+6|0.87|WAGGED|asked|MIA
+7|0.96|MIA|gently approached|WAGGED
+7|0.96|puppy|wagged hesitantly|WAGGED
+8|0.97|WAGGED|sniffed|HAND
+8|0.97|WAGGED|sniffed|MIA
+8|0.90|WAGGED|sniffed HAND before nuzzling|MIA
+9|0.97|MIA|decided|WAGGED
+9|0.97|MIA|decided|WAGGED
+9|0.96|MIA|decided to name|WAGGED
+9|0.96|MIA|decided to name|WAGGED
+10|0.94|MIA|looked|PARK
+10|0.93|MIA|could n't see|WAGGED
+11|0.91|WAGGED|find|WAGGED
+13|0.97|FRANTICALLY|appeared|hours
+13|0.92|FRANTICALLY|calling out|WAGGED
+13|0.92|FRANTICALLY|calling out|WAGGED
+14|0.94|WAGGED|running|FRANTICALLY
+15|0.82|FRANTICALLY|was|FRANTICALLY
+15|0.82|FRANTICALLY|was|FRANTICALLY
+18|0.96|MIA|smiled|happy help
+19|0.72|MIA|felt|HEART
+19|0.72|MIA|felt|MIA
+19|0.72|MIA|felt|WAGGED
+19|0.70|MIA|felt|HEART
+19|0.70|MIA|felt|MIA
+19|0.70|MIA|felt|FRANTICALLY
+20|0.97|MIA|learned|act kindness difference day
+20|0.96|act kindness|could make|difference

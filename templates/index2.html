@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Visualization</title>
+    <!-- Include D3.js -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+            overflow: hidden;
+        }
+
+        #container {
+            display: flex;
+            width: 100%;
+            height: 100%;
+        }
+
+        #right-pane {
+            width: 50%;
+            height: 100%;
+            padding: 20px;
+            border-left: 2px solid #ddd;
+            overflow-y: auto;
+            box-sizing: border-box;
+        }
+
+        #left-pane {
+            width: 50%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #top-left {
+            flex: 4;
+            border-bottom: 2px solid #ddd;
+            position: relative;
+            overflow: hidden;
+        }
+
+        #bottom-left {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .node-label {
+            font-size: 10px;
+            user-select: none;
+        }
+
+        .edge-label {
+            font-size: 10px;
+            user-select: none;
+        }
+
+        .highlight {
+            stroke: red;
+            stroke-width: 3px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="container">
+        <div id="left-pane">
+            <div id="top-left">
+                <div id="my_dataviz"></div>
+            </div>
+            <div id="bottom-left">
+                <h2>Entity Names</h2>
+                <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Maecenas elementum ex eget massa fermentum mattis. Fusce venenatis fringilla iaculis. Duis ut dui pellentesque, interdum mauris vel, luctus eros. Interdum et malesuada fames ac ante ipsum primis in faucibus. Nulla cursus, enim eget pulvinar fermentum, nibh neque imperdiet arcu, sit amet bibendum massa magna non dui. Aenean sed mauris velit. Sed accumsan porta enim, et egestas nisl cursus at. Proin semper nisi erat, at placerat elit semper vitae. Nullam urna augue, finibus quis porta at, bibendum sit amet magna. Donec ac scelerisque ex, at rhoncus libero. Duis tortor tortor, egestas a iaculis at, iaculis eget risus. Nulla eget sapien faucibus quam placerat condimentum.</p>
+            </div>
+        </div>
+        <div id="right-pane">
+            <h2>Original Text</h2>
+            <p>On a sunny afternoon in a small town, a little girl named Mia wandered into the park.
+She loved to explore the lush green grass and colorful flowers.
+As she skipped along the path, she heard a soft whimpering sound.
+Curious, Mia followed the sound until she found a tiny, brown puppy curled up under a bench.
+Its big, sad eyes looked up at her, and her heart melted.
+"Oh, you poor thing! Are you lost?" she asked.
+Mia gently approached the puppy, who wagged its tail hesitantly.
+She reached out her hand, and the puppy sniffed it before nuzzling against her.
+Mia decided to name him Max.
+She looked around the park but couldn’t see anyone searching for him.
+"Don’t worry, Max. I’ll help you find your home!" she said confidently.
+They spent the afternoon walking around, asking other park visitors if they recognized the puppy.
+After what felt like hours, a woman appeared, calling out, "Max! Max!"
+The puppy perked up, barking excitedly and running towards her.
+It was his owner, Sarah, who had been searching for him frantically.
+Mia watched as Sarah knelt down, tears of joy in her eyes, hugging Max tightly.
+"Thank you so much for finding him!" Sarah said, grateful for Mia's kindness.
+Mia smiled, happy to help.
+As she waved goodbye to Max and Sarah, she felt a warm glow in her heart.
+That day, she learned that sometimes, a small act of kindness could make a big difference.</p>
+        </div>
+    </div>
+    <script>
+        var width = window.innerWidth * 0.5;
+        var height = window.innerHeight * 0.8;
+
+        var svg = d3.select("#my_dataviz")
+            .append("svg")
+            .attr("width", width)
+            .attr("height", height)
+            .append("g");
+
+        // Load the data from Flask
+        var graph_data = {{ graph_data|tojson }};
+        let originalGraphData = JSON.parse(JSON.stringify(graph_data));  // Store original data for reset
+
+        // Function to draw the graph
+        function drawGraph(data) {
+            // Clear existing elements
+            svg.selectAll("*").remove();
+            // Calculate fixed x positions based on nodes.sent
+
+            const xScale = d3.scaleLinear()
+                .domain([d3.min(data.nodes, d => d.sent), d3.max(data.nodes, d => d.sent)])
+                .range([50, width - 50]);
+
+            data.nodes.forEach(node => {
+                node.y = height / 2 + 20 * (Math.random() - 0.5);
+                node.x = xScale(node.sent);
+            });
+
+            // Initialize the links
+            var link = svg
+                .selectAll("line")
+                .data(data.links)
+                .enter().append("line")
+                .style("stroke", "#aaa");
+
+            // Initialize the nodes with fixed x positions
+            var node = svg
+                .selectAll("circle")
+                .data(data.nodes)
+                .enter().append("circle")
+                .attr("r", 20)
+                .style("fill", d => d.color)
+                .attr("cx", d => xScale(d.sent))
+                .attr("cy", d => d.y)
+                .on("click", handleNodeClick) // Attach click event
+                .call(d3.drag()
+                    .on("start", dragstarted)
+                    .on("drag", dragged)
+                    .on("end", dragended));
+
+            // Create node labels above nodes
+            var nodeLabels = svg
+                .selectAll(".node-label")
+                .data(data.nodes)
+                .enter().append("text")
+                .attr("class", "node-label")
+                .text(d => d.id)
+                .attr("text-anchor", "middle")
+                .attr("dy", -25);
+
+            // Initialize edge labels
+            var edgeLabels = svg
+                .selectAll(".edge-label")
+                .data(data.links)
+                .enter().append("text")
+                .attr("class", "edge-label")
+                .text(d => d.id)
+                .attr("text-anchor", "middle");
+
+            // Create the simulation
+            var simulation = d3.forceSimulation(data.nodes)
+                .force("link", d3.forceLink()
+                    .id(d => d.id)
+                    .links(data.links)
+                    .distance(250)
+                )
+                .force("charge", d3.forceManyBody().strength(-250))
+                .on("tick", ticked);
+
+            // Function to update positions on tick
+            function ticked() {
+                link
+                    .attr("x1", d => xScale(d.source.sent))
+                    .attr("y1", d => d.source.y)
+                    .attr("x2", d => xScale(d.target.sent))
+                    .attr("y2", d => d.target.y);
+
+                node
+                    .attr("cx", d => xScale(d.sent))
+                    .attr("cy", d => {
+                        if (d.y < 20) {
+                            d.y = 20;
+                        } else if (d.y > height - 20) {
+                            d.y = height - 20;
+                        }
+                        return d.y;
+                    });
+
+                nodeLabels
+                    .attr("x", d => xScale(d.sent))
+                    .attr("y", d => d.y);
+
+                edgeLabels
+                    .attr("x", d => (xScale(d.source.sent) + xScale(d.target.sent)) / 2)
+                    .attr("y", d => (d.source.y + d.target.y) / 2);
+            }
+
+            // Dragging functions
+            function dragstarted(event, d) {
+                if (!event.active) simulation.alphaTarget(0.3).restart();
+                d.fx = d.x; 
+                d.fy = d.y; 
+            }
+
+            function dragged(event, d) {
+                d.fx = xScale(d.sent); 
+                d.fy = Math.max(20, Math.min(height - 20, event.y)); 
+                d.y = d.fy; 
+            }
+
+            function dragended(event, d) {
+                if (!event.active) simulation.alphaTarget(0); 
+                d.fx = null; 
+                d.fy = null; 
+            }
+        }
+
+        // Initial graph draw
+        drawGraph(originalGraphData);
+
+        let highlightedNode = null;
+
+        // Handle node click
+        function handleNodeClick(event, clickedNode) {
+            // Determine if a node is already highlighted
+            if (highlightedNode) {
+                // If the clicked node is the same as the highlighted node, reset
+                if (clickedNode.id === highlightedNode.id) {
+                    highlightedNode = null;  // Reset highlight
+                    drawGraph(originalGraphData);  // Reset to original graph
+                } else {
+                    // Highlight the new node and reset the previous one
+                    highlightedNode = clickedNode;  // Set the new highlighted node
+                    drawSubsetGraph(clickedNode); // Draw the subset graph
+                    highlightNode(clickedNode); // Highlight the clicked node
+                }
+            } else {
+                // First click on a node
+                highlightedNode = clickedNode;  // Set as highlighted
+                drawSubsetGraph(clickedNode); // Draw the subset graph
+                highlightNode(clickedNode); // Highlight the clicked node
+            }
+        }
+
+        // Function to highlight the clicked node
+        function highlightNode(nodeData) {
+            svg.selectAll("circle")
+                .style("fill", d => d.id === nodeData.id ? "red" : d.color); // Highlight clicked node
+        }
+
+        function drawSubsetGraph(node) {
+            // Get all related nodes (subject/object) based on the links
+            const relatedNodeIds = new Set();
+            const relatedLinks = [];
+
+            // Add the clicked node
+            relatedNodeIds.add(node.id);
+
+            // Add all related nodes
+            originalGraphData.links.forEach(link => {
+                if (link.source.id === node.id || link.source === node.id) {
+                    relatedNodeIds.add(link.target.id || link.target);
+                    relatedLinks.push({
+                        source: link.source.id || link.source,
+                        target: link.target.id || link.target,
+                        id: link.id
+                    });
+                } else if (link.target.id === node.id || link.target === node.id) {
+                    relatedNodeIds.add(link.source.id || link.source);
+                    relatedLinks.push({
+                        source: link.source.id || link.source,
+                        target: link.target.id || link.target,
+                        id: link.id
+                    });
+                }
+            });
+
+            // Filter the original data to only include the related nodes and their links
+            const filteredNodes = originalGraphData.nodes.filter(n => relatedNodeIds.has(n.id));
+            // Create the new graph data with properly structured links
+            const subsetGraphData = {
+                nodes: filteredNodes,
+                links: relatedLinks
+            };
+
+            // Draw the new graph
+            drawGraph(subsetGraphData);
+        }
+    </script>
+</body>
+
+</html>

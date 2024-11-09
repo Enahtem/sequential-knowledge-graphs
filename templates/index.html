@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Visualization</title>
+    <!-- Include D3.js -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+            overflow: hidden;
+        }
+
+        #container {
+            display: flex;
+            width: 100%;
+            height: 100%;
+        }
+
+        #left-pane {
+            width: 50%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between; /* This makes sure the items are spaced evenly */
+            padding: 0px;
+            border: 1px solid #ddd;
+            box-sizing: border-box;
+        }
+
+        #right-pane {
+            width: 50%;
+            height: 100%;
+            padding: 0px;
+            border: 1px solid #ddd;
+            box-sizing: border-box;
+        }
+
+        #my_dataviz {
+            width: 100%;
+            height: 70%; /* Make the graph take up 70% of the left pane */
+            border: 1px solid #ddd;
+        }
+
+        #slider-container {
+            width: 90%;
+            margin: 0px auto;
+            text-align: center;
+            padding: 0px;
+            border: 1px solid #ddd;
+        }
+
+        #slider-value {
+            font-size: 16px;
+            margin-top: 10px;
+            padding: 0px;
+        }
+
+        #bottom-left {
+            height: 20%; /* Make the bottom part take up 20% */
+            overflow-y: auto;
+            padding: 0px;
+            border: 1px solid #ddd;
+        }
+
+        .node-label {
+            font-size: 10px;
+            user-select: none;
+        }
+
+        .edge-label {
+            font-size: 10px;
+            user-select: none;
+        }
+
+        .highlight {
+            stroke: red;
+            stroke-width: 3px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="container">
+        <div id="left-pane">
+            <div id="my_dataviz"></div> <!-- Graph -->
+            <div id="slider-container">
+                <input type="range" id="value-slider" min="0" max="100" value="50" step="1" style="width: 100%;">
+                <div id="slider-value">Time: 0</div> 
+            </div>
+            <div id="bottom-left">
+                <h2>Entity Names</h2>
+                <div id="entity-list"></div>
+            </div>
+        </div>
+        <div id="right-pane">
+            <h2>Original Text</h2>
+            <div id="original-text""></div>
+        </div>
+    </div>
+
+    <script>
+        // Create a random variable (initial value will be 50)
+        let sliderValue = 0;
+
+        let highlightedNode = null;
+
+        // Function to update the random variable and display the value when the slider changes
+        const slider = document.getElementById("value-slider");
+        const valueDisplay = document.getElementById("slider-value");
+
+        // Update the value dynamically when the slider changes
+        slider.addEventListener("input", function () {
+            sliderValue = parseInt(slider.value);  // Update the random variable
+            valueDisplay.textContent = "Time: " + sliderValue;  // Update the displayed value
+            updateGraphYPosition(sliderValue); // Update the y positions of nodes
+        });
+
+        var width = window.innerWidth * 0.5;
+        var height = window.innerHeight * 0.7;
+
+        var svg = d3.select("#my_dataviz")
+            .append("svg")
+            .attr("width", width)
+            .attr("height", height)
+            .append("g");
+
+        // Load the data from Flask
+        var graph_data = {{ graph_data|tojson }};
+        console.log(graph_data);
+        let originalGraphData = JSON.parse(JSON.stringify(graph_data));  // Store original data for reset
+        console.log(graph_data.coreferences.clusters_token_text)
+
+        // Populate the bottom-left div with buttons for each node ID
+        function populateEntityList(data) {
+            const entityList = document.getElementById("entity-list");
+            entityList.innerHTML = "";  // Clear existing content
+
+            data.nodes.forEach(node => {
+                const button = document.createElement("button");
+                button.textContent = node.id;
+                button.style.margin = "5px";
+                button.onclick = () => handleButtonClick(node.id);
+                entityList.appendChild(button);
+            });
+        }
+
+        // Trigger a click on the node when the corresponding button is clicked
+        function handleButtonClick(nodeId) {
+            const node = originalGraphData.nodes.find(n => n.id === nodeId);
+            if (node) {
+                handleNodeClick(null, node);  // Trigger the node click functionality
+            }
+        }
+
+        // Call populateEntityList with the original graph data
+        populateEntityList(originalGraphData);
+        setOriginalText(originalGraphData, sliderValue, highlightedNode);
+        
+
+
+        function setOriginalText(data, sliderValue, highlightedNode) {
+            const originalText = document.getElementById("original-text");
+
+            // Create a scale to map slider value to sentence position
+            const xScale = d3.scaleLinear()
+                .domain([0, 100])
+                .range([d3.min(originalGraphData.nodes, d => d.sent), d3.max(originalGraphData.nodes, d => d.sent)]);
+
+            // Get the current sentence position based on the slider
+            const sentencePosition = xScale(sliderValue);
+
+            // Function to find and bold all coreferences of the highlightedNode
+            function boldCoreferences(text, highlightedNode) {
+                // Check if highlightedNode is within any coreference clusters
+                let charOffsets = null;
+                for (let i = 0; i < data.coreferences.clusters_token_text.length; i++) {
+                    const cluster = data.coreferences.clusters_token_text[i]; // Cluster of words in the current coreference group
+
+                    // Join all words in the cluster into a single string
+                    const joinedText = cluster.join(' ').toLowerCase();
+
+                    // Check if highlightedNode.id is part of the joined text
+                    if (joinedText.includes(highlightedNode.id.toLowerCase())) {
+                        // Get the character offsets for the coreference mentions in this cluster
+                        charOffsets = data.coreferences.clusters_char_offsets[i];
+                        break;
+                    }
+                }
+
+                const corefCluster = data.coreferences.clusters_token_text.find(
+                    cluster => cluster.includes(highlightedNode.id)
+                );
+
+
+                if (charOffsets) {
+
+                    let modifiedText = text;
+
+                    // Iterate over the character offsets in reverse order
+                    for (let i = charOffsets.length - 1; i >= 0; i--) {
+                        const [start, end] = charOffsets[i];
+
+                        // Bold the text in the specified range
+                        modifiedText = modifiedText.slice(0, start) + `<b>` + modifiedText.slice(start, end+1) + `</b>` + modifiedText.slice(end+1);
+                    }
+
+                    return modifiedText;
+                } else {
+                    // If not in any coreference clusters, bold occurrences of highlightedNode directly
+                    const nodeSentIndex = highlightedNode.sent - 1; // Sentence index of the highlightedNode
+                    const sentences = data.text.split('\n');
+                    const sentenceToBold = sentences[nodeSentIndex];
+                    const wordsToBold = highlightedNode.id.split(' '); // Split the string into individual words
+                    const regExp = new RegExp(`\\b(${wordsToBold.join('|')})\\b`, "gi"); // The words are joined with the OR operator "|"
+                    const boldedSentence = sentenceToBold.replace(regExp, match => `<b>${match}</b>`);
+                    sentences[nodeSentIndex] = boldedSentence;
+
+                    return sentences.join('\n');
+                    
+                }
+            }
+
+
+           function highlightFirstXLines(text, numLinesToHighlight) {
+                // Split the text by line breaks
+                const lines = text.split("\n");
+
+                // Wrap the first `numLinesToHighlight` lines with a highlight style
+                const highlightedLines = lines.map((line, index) => {
+                    if (index < numLinesToHighlight) {
+                        return `<span style="background-color: yellow;">${line}</span>`;  // Highlighted
+                    }
+                    return line;  // Non-highlighted
+                });
+
+                // Join the lines back with line breaks to form the HTML content
+                return highlightedLines.join("<br>");
+            }
+
+            // Combine everything together to generate the final output
+            let fullText = data.text; // All the text without truncation
+            let boldedText = data.text;
+
+
+
+            if (highlightedNode) {
+                boldedText = "";
+                boldedText = boldCoreferences(fullText, highlightedNode);
+            }
+
+            let highlightedText = highlightFirstXLines(boldedText, sentencePosition);
+            
+            // Set the inner HTML of the original-text element
+            originalText.innerHTML = highlightedText;
+        }
+
+
+
+        // Function to simulate the position of each node using Euler's method
+        function simulateNodePositions(data) {
+            const decayConstant = 0.0003;  // Adjust this value to control the rate of decay
+            const boostFactor = 0.7;      // Fraction by which the position is multiplied after a boost (less than 1)
+            
+            // Scale for boost times (from sent value to slider time)
+            const xScaleBoost = d3.scaleLinear()
+                .domain([d3.min(originalGraphData.nodes, d => d.sent), d3.max(originalGraphData.nodes, d => d.sent)])
+                .range([0, 100]);  // Scale from boost time to slider scale (0 to 100)
+
+            // Initialize the simulation for each node
+            data.nodes.forEach(node => {
+                const nodeId = node.id;
+                nodePositionsSimulation[nodeId] = [];  // Initialize empty array for the node's y positions
+
+                let currentY = 0;  // Initial position starts at 0
+                let velocity = 0;   // Initial velocity (0 velocity means no movement)
+                let boostHistory = [];  // Track boosts applied to the node
+                
+                // Simulate y values for each slider step (from 0 to 100)
+                for (let sliderValue = 0; sliderValue <= 100; sliderValue++) {
+                    // Apply exponential decay using Euler's method
+                    let decayForce = decayConstant * (height - currentY);  // Exponential decay (how much the node should move towards max)
+                    velocity += decayForce;  // Euler's method to update velocity based on decay force
+                    currentY += velocity;    // Update position based on velocity
+
+                    // Ensure the node's position never goes below 0 (it can only approach the max)
+                    if (currentY > height) {
+                        currentY = height;
+                    }
+
+                    // Check if any boost times are passed
+                    if (node.boost && node.boost.length > 0) {
+                        node.boost.forEach(boostTime => {
+                            // x-scale the boost time to the slider range
+                            const scaledBoostTime = xScaleBoost(boostTime);
+
+                            // If boost time has passed (after x-scale adjustment), apply boost proportional to the current y value
+                            if (sliderValue >= scaledBoostTime && !boostHistory.includes(scaledBoostTime)) {
+                                // Apply the boost (multiply by a fraction to move the node towards zero)
+                                currentY = currentY * boostFactor;  // Boost the position and update the currentY for next steps
+                                velocity = 0;  // Optionally reset velocity after boost (you can modify this if you want the node to keep its velocity)
+                                boostHistory.push(scaledBoostTime);  // Mark this boost as applied
+                            }
+                        });
+                    }
+
+                    // Store the simulated y position for the node at this slider step
+                    nodePositionsSimulation[nodeId][sliderValue] = currentY;
+                }
+            });
+        }
+
+
+        // Global simulation object to store node positions over time
+        nodePositionsSimulation = {};  // Each node's simulated y positions for all slider steps
+
+
+
+        function drawGraph(data) {
+            // Clear existing elements
+            svg.selectAll("*").remove();
+            setOriginalText(data, sliderValue, highlightedNode);
+            simulateNodePositions(data);  // Initialize positions specific to current graph
+            // Calculate fixed x positions based on nodes.sent
+            const xScale = d3.scaleLinear()
+                .domain([d3.min(data.nodes, d => d.sent), d3.max(data.nodes, d => d.sent)])
+                .range([50, width - 50]);
+
+            // Set initial positions for nodes and links
+            data.nodes.forEach(node => {
+                node.x = xScale(node.sent);
+                node.y = 0; // Start with y at center
+            });
+
+            // Initialize the links
+            var link = svg
+                .selectAll("line")
+                .data(data.links)
+                .enter().append("line")
+                .style("stroke", "#aaa")
+                .attr("x1", d => {
+                    // Find the source node
+                    const sourceNode = data.nodes.find(node => node.id === d.source);
+                    return xScale(sourceNode.sent);
+                })
+                .attr("y1", d => {
+                    // Find the source node
+                    const sourceNode = data.nodes.find(node => node.id === d.source);
+                    return sourceNode.y;
+                })
+                .attr("x2", d => {
+                    // Find the target node
+                    const targetNode = data.nodes.find(node => node.id === d.target);
+                    return xScale(targetNode.sent);
+                })
+                .attr("y2", d => {
+                    // Find the target node
+                    const targetNode = data.nodes.find(node => node.id === d.target);
+                    return targetNode.y;
+                });
+
+            // Initialize the nodes with fixed x positions and no dragging
+            var node = svg
+                .selectAll("circle")
+                .data(data.nodes)
+                .enter().append("circle")
+                .attr("r", 20)
+                .style("fill", d => d.color)
+                .attr("cx", d => d.x)
+                .attr("cy", d => d.y)
+                .on("click", handleNodeClick);
+
+            // Create node labels above nodes
+            var nodeLabels = svg
+                .selectAll(".node-label")
+                .data(data.nodes)
+                .enter().append("text")
+                .attr("class", "node-label")
+                .text(d => d.id)
+                .attr("text-anchor", "middle")
+                .attr("dy", -25)
+                .attr("x", d => d.x)
+                .attr("y", d => d.y);
+
+            // Initialize edge labels
+            var edgeLabels = svg
+                .selectAll(".edge-label")
+                .data(data.links)
+                .enter().append("text")
+                .attr("class", "edge-label")
+                .text(d => d.id)
+                .attr("text-anchor", "middle")
+                .attr("x", d => {
+                    const sourceNode = data.nodes.find(node => node.id === d.source);
+                    const targetNode = data.nodes.find(node => node.id === d.target);
+                    return (sourceNode.x + targetNode.x) / 2;
+                })
+                .attr("y", d => {
+                    const sourceNode = data.nodes.find(node => node.id === d.source);
+                    const targetNode = data.nodes.find(node => node.id === d.target);
+                    return (sourceNode.y + targetNode.y) / 2;
+                });
+        }
+
+        // Initial graph draw
+        drawGraph(originalGraphData);
+
+        // Handle node click
+        function handleNodeClick(event, clickedNode) {
+            // Highlight or reset on click
+            if (highlightedNode) {
+                if (clickedNode.id === highlightedNode.id) {
+                    highlightedNode = null;
+                    drawGraph(originalGraphData);
+                } else {
+                    highlightedNode = clickedNode;
+                    drawSubsetGraph(clickedNode);
+                    highlightNode(clickedNode);
+                }
+            } else {
+                highlightedNode = clickedNode;
+                drawSubsetGraph(clickedNode);
+                highlightNode(clickedNode);
+            }
+        }
+
+        // Function to highlight the clicked node
+        function highlightNode(nodeData) {
+            svg.selectAll("circle")
+                .style("fill", d => d.id === nodeData.id ? "red" : d.color);
+        }
+
+
+        function drawSubsetGraph(node) {
+            // Get all related nodes based on the links
+            const relatedNodeIds = new Set();
+            const relatedLinks = [];
+
+            relatedNodeIds.add(node.id);
+            originalGraphData.links.forEach(link => {
+                if (link.source.id === node.id || link.source === node.id) {
+                    relatedNodeIds.add(link.target.id || link.target);
+                    relatedLinks.push({
+                        source: link.source.id || link.source,
+                        target: link.target.id || link.target,
+                        id: link.id
+                    });
+                } else if (link.target.id === node.id || link.target === node.id) {
+                    relatedNodeIds.add(link.source.id || link.source);
+                    relatedLinks.push({
+                        source: link.source.id || link.source,
+                        target: link.target.id || link.target,
+                        id: link.id
+                    });
+                }
+            });
+
+            const filteredNodes = originalGraphData.nodes.filter(n => relatedNodeIds.has(n.id));
+            const subsetGraphData = {
+                nodes: filteredNodes,
+                links: relatedLinks,
+                text: originalGraphData.text,
+                coreferences: originalGraphData.coreferences
+            };
+
+            drawGraph(subsetGraphData);
+        }
+
+        
+
+
+        // Function to update the graph based on the current slider value
+        function updateGraphYPosition(sliderValue) {
+            setOriginalText(originalGraphData,sliderValue,highlightedNode);
+            // Use the precomputed values in nodePositionsSimulation for each node
+            originalGraphData.nodes.forEach((node) => {
+                // Select the corresponding y value from the simulation at the current slider value
+                //const xscale from node.sent to 0 to 100. subtract slidervalue by this. if less than 0, set simulatedy to 0, wise do slidervalue - this xscale.
+
+                const simulatedY = nodePositionsSimulation[node.id][sliderValue];
+
+                
+                // Update the node's y position based on the slider value
+                node.y = simulatedY;
+            });
+
+            // Rebind all data with the correct key functions for nodes, links, and labels
+            const links = svg.selectAll("line")
+                .data(originalGraphData.links, d => `${d.source}-${d.target}`);
+
+            const edgeLabels = svg.selectAll(".edge-label")
+                .data(originalGraphData.links, d => `${d.source}-${d.target}`);
+
+            // Update node positions
+            svg.selectAll("circle")
+                .data(originalGraphData.nodes, d => d.id)
+                .transition()
+                .duration(50)
+                .attr("cy", d => d.y);
+
+            // Update node labels
+            svg.selectAll(".node-label")
+                .data(originalGraphData.nodes, d => d.id)
+                .transition()
+                .duration(50)
+                .attr("y", d => d.y);
+
+            // Update link positions
+            links.transition()
+                .duration(50)
+                .attr("y1", d => {
+                    const sourceNode = originalGraphData.nodes.find(node => node.id === d.source);
+                    return sourceNode.y;
+                })
+                .attr("y2", d => {
+                    const targetNode = originalGraphData.nodes.find(node => node.id === d.target);
+                    return targetNode.y;
+                });
+
+            // Update edge labels
+            edgeLabels.transition()
+                .duration(50)
+                .attr("y", d => {
+                    const sourceNode = originalGraphData.nodes.find(node => node.id === d.source);
+                    const targetNode = originalGraphData.nodes.find(node => node.id === d.target);
+                    return (sourceNode.y + targetNode.y) / 2;
+                });
+        }
+
+
+
+    </script>
+
+</body>
+
+</html>
+
