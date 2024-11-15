@@ -40,17 +40,17 @@ def read_data():
             edge_key = tuple(sorted([arg1, arg2]))
             if edge_key in existing_edges:
                 # Append new relationship to the existing edge
-                existing_edges[edge_key].append(rel)
+                existing_edges[edge_key].append((rel,sentence_num))
             else:
                 # Create a new edge entry
-                existing_edges[edge_key] = [rel]
+                existing_edges[edge_key] = [(rel,sentence_num)]
         
         # Construct edges with combined relationships
         for (source, target), rels in existing_edges.items():
             edges.append({
                 "source": source,
                 "target": target,
-                "id": " > ".join(rels)  # Join relationships with " | "
+                "id": rels
             })
 
     graph_data = {

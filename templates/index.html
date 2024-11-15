@@ -48,7 +48,9 @@
         }
 
         #slider-container {
-            width: 90%;
+            display: flex;
+            align-items: center;
+            width: 100%;
             margin: 0px auto;
             text-align: center;
             padding: 0px;
@@ -90,8 +92,12 @@
         <div id="left-pane">
             <div id="my_dataviz"></div> <!-- Graph -->
             <div id="slider-container">
-                <input type="range" id="value-slider" min="0" max="100" value="50" step="1" style="width: 100%;">
-                <div id="slider-value">Time: 0</div> 
+                <div id="slider-buttons">
+                    <input type="button" id="slider-button-start-stop" value="Start" />
+                    <input type="button" id="slider-button-speed" value="1" />
+                </div>
+                <input type="range" id="value-slider" min="0" max="1000" value="1" step="1" style="width: 100%;">
+                <div id="slider-value">Progress: 0%</div> 
             </div>
             <div id="bottom-left">
                 <h2>Entity Names</h2>
@@ -113,12 +119,66 @@
         // Function to update the random variable and display the value when the slider changes
         const slider = document.getElementById("value-slider");
         const valueDisplay = document.getElementById("slider-value");
+        const speeds = [1, 2, 4, 8];
+        let speedIndex = 0;
+        const sliderSpeed = document.getElementById("slider-button-speed");
+        const sliderControl = document.getElementById("slider-button-start-stop");
+        let isPlaying = false;
+        let sliderInterval;
+
+        sliderSpeed.addEventListener("click", function () {
+            speedIndex = (speedIndex+1)%speeds.length;
+            sliderSpeed.value = speeds[speedIndex];
+
+            // If the slider is already playing, update the interval with the new speed
+            if (isPlaying) {
+                clearInterval(sliderInterval);  // Clear the previous interval
+                sliderInterval = setInterval(moveSliderForward, 50/speeds[speedIndex]); // Set a new interval with the new speed
+            }
+        });
+        
+
+        // Start/Stop button functionality
+        sliderControl.addEventListener("click", function () {
+            if (isPlaying) {
+                // Pause the slider
+                clearInterval(sliderInterval);
+                sliderControl.value = "Start";
+            } else {
+                // Start the slider
+                sliderControl.value = "Pause";
+                sliderInterval = setInterval(moveSliderForward, 50/speeds[speedIndex]);
+            }
+            isPlaying = !isPlaying;
+        });
+
+        // Function to move the slider forward automatically
+        function moveSliderForward() {
+            if (sliderValue < slider.max) {
+                sliderValue++;
+                slider.value = sliderValue;
+                valueDisplay.textContent = "Progress: " + Math.floor(sliderValue/slider.max*100) + "%";
+                updateGraphYPosition(sliderValue); // Update the y positions of nodes
+                opacityChanges(sliderValue);
+                updateEdgeLabels(sliderValue, originalGraphData);
+                updateNodeSize(sliderValue, originalGraphData);
+            } else {
+                // Stop when reaching the end
+                clearInterval(sliderInterval);
+                sliderControl.value = "Start";
+                isPlaying = false;
+            }
+        }        
+
 
         // Update the value dynamically when the slider changes
         slider.addEventListener("input", function () {
             sliderValue = parseInt(slider.value);  // Update the random variable
-            valueDisplay.textContent = "Time: " + sliderValue;  // Update the displayed value
+            valueDisplay.textContent = "Progress: " + Math.floor(sliderValue/slider.max*100) + "%";  // Update the displayed value
             updateGraphYPosition(sliderValue); // Update the y positions of nodes
+            opacityChanges(sliderValue);
+            updateEdgeLabels(sliderValue, originalGraphData);
+            updateNodeSize(sliderValue, originalGraphData);
         });
 
         var width = window.innerWidth * 0.5;
@@ -169,7 +229,7 @@
 
             // Create a scale to map slider value to sentence position
             const xScale = d3.scaleLinear()
-                .domain([0, 100])
+                .domain([0, slider.max])
                 .range([d3.min(originalGraphData.nodes, d => d.sent), d3.max(originalGraphData.nodes, d => d.sent)]);
 
             // Get the current sentence position based on the slider
@@ -264,13 +324,13 @@
 
         // Function to simulate the position of each node using Euler's method
         function simulateNodePositions(data) {
-            const decayConstant = 0.0003;  // Adjust this value to control the rate of decay
-            const boostFactor = 0.7;      // Fraction by which the position is multiplied after a boost (less than 1)
+            const decayConstant = 0.00005;  // Adjust this value to control the rate of decay
+            const boostFactor = 0.75;      // Fraction by which the position is multiplied after a boost (less than 1)
             
             // Scale for boost times (from sent value to slider time)
             const xScaleBoost = d3.scaleLinear()
                 .domain([d3.min(originalGraphData.nodes, d => d.sent), d3.max(originalGraphData.nodes, d => d.sent)])
-                .range([0, 100]);  // Scale from boost time to slider scale (0 to 100)
+                .range([0, slider.max]);  // Scale from boost time to slider scale (0 to slider.max)
 
             // Initialize the simulation for each node
             data.nodes.forEach(node => {
@@ -281,8 +341,15 @@
                 let velocity = 0;   // Initial velocity (0 velocity means no movement)
                 let boostHistory = [];  // Track boosts applied to the node
                 
-                // Simulate y values for each slider step (from 0 to 100)
-                for (let sliderValue = 0; sliderValue <= 100; sliderValue++) {
+                // Simulate y values for each slider step (from 0 to slider.max)
+                for (let sliderValue = 0; sliderValue <= slider.max; sliderValue++) {
+
+                    if (sliderValue < xScaleBoost(node.sent)) {
+                        nodePositionsSimulation[nodeId][sliderValue] = 0;  // Node remains at 0 until slider value exceeds sent
+                        continue; // Skip the rest of the loop for this sliderValue
+                    }
+
+
                     // Apply exponential decay using Euler's method
                     let decayForce = decayConstant * (height - currentY);  // Exponential decay (how much the node should move towards max)
                     velocity += decayForce;  // Euler's method to update velocity based on decay force
@@ -337,6 +404,7 @@
                 node.y = 0; // Start with y at center
             });
 
+
             // Initialize the links
             var link = svg
                 .selectAll("line")
@@ -373,7 +441,7 @@
                 .style("fill", d => d.color)
                 .attr("cx", d => d.x)
                 .attr("cy", d => d.y)
-                .on("click", handleNodeClick);
+                .on("click", handleNodeClick)
 
             // Create node labels above nodes
             var nodeLabels = svg
@@ -383,17 +451,21 @@
                 .attr("class", "node-label")
                 .text(d => d.id)
                 .attr("text-anchor", "middle")
-                .attr("dy", -25)
+                .attr("dy", 0)
                 .attr("x", d => d.x)
                 .attr("y", d => d.y);
+
 
             // Initialize edge labels
             var edgeLabels = svg
                 .selectAll(".edge-label")
-                .data(data.links)
+                .data(data.links)  // Bind the links, not the entire data object
                 .enter().append("text")
                 .attr("class", "edge-label")
-                .text(d => d.id)
+                .text(function(d) {
+                    // Access the first item in the id array and return the text (first element of the tuple)
+                    return d.id[0][0];  // Assuming id is an array of tuples like [['calling out', '13'], ...]
+                })
                 .attr("text-anchor", "middle")
                 .attr("x", d => {
                     const sourceNode = data.nodes.find(node => node.id === d.source);
@@ -433,6 +505,7 @@
         function highlightNode(nodeData) {
             svg.selectAll("circle")
                 .style("fill", d => d.id === nodeData.id ? "red" : d.color);
+            jumpToSliderPosition(nodeData.sent);
         }
 
 
@@ -467,7 +540,6 @@
                 text: originalGraphData.text,
                 coreferences: originalGraphData.coreferences
             };
-
             drawGraph(subsetGraphData);
         }
 
@@ -480,7 +552,7 @@
             // Use the precomputed values in nodePositionsSimulation for each node
             originalGraphData.nodes.forEach((node) => {
                 // Select the corresponding y value from the simulation at the current slider value
-                //const xscale from node.sent to 0 to 100. subtract slidervalue by this. if less than 0, set simulatedy to 0, wise do slidervalue - this xscale.
+                //const xscale from node.sent to 0 to slider.max. subtract slidervalue by this. if less than 0, set simulatedy to 0, wise do slidervalue - this xscale.
 
                 const simulatedY = nodePositionsSimulation[node.id][sliderValue];
 
@@ -531,8 +603,92 @@
                     return (sourceNode.y + targetNode.y) / 2;
                 });
         }
+        function opacityChanges(sliderValue) {
+            // Set a threshold value for opacity changes based on the slider value
+            const thresholdValue = sliderValue;
+
+            // Scale the nodes' `sent` values to the slider range (0-slider.max) for comparison
+            const xScale = d3.scaleLinear()
+                .domain([d3.min(originalGraphData.nodes, d => d.sent), d3.max(originalGraphData.nodes, d => d.sent)])
+                .range([0, slider.max]);
 
 
+
+            const yScale = d3.scaleLinear()
+                .domain([0,height])
+                .range([1,0]);
+
+            // Update node opacity based on `sent` position relative to the threshold
+            svg.selectAll("circle")
+                .style("opacity", d => xScale(d.sent) <= thresholdValue ? yScale(d.y) : 0);
+
+            // Update node label opacity similarly
+            svg.selectAll(".node-label")
+                .style("opacity", d => xScale(d.sent) <= thresholdValue ? 1 : 0);
+
+            // Update edge opacity based on the positions of source and target nodes
+            svg.selectAll("line")
+                .style("opacity", d => {
+                    const sourceNode = originalGraphData.nodes.find(node => node.id === d.source);
+                    const targetNode = originalGraphData.nodes.find(node => node.id === d.target);
+                    return (xScale(sourceNode.sent) <= thresholdValue && xScale(targetNode.sent) <= thresholdValue) ? 1 : 0;
+                });
+
+            // Update edge label opacity similarly
+            svg.selectAll(".edge-label")
+                .style("opacity", d => {
+                    const sourceNode = originalGraphData.nodes.find(node => node.id === d.source);
+                    const targetNode = originalGraphData.nodes.find(node => node.id === d.target);
+                    return (xScale(sourceNode.sent) <= thresholdValue && xScale(targetNode.sent) <= thresholdValue) ? 1 : 0;
+                });
+        }
+
+        function jumpToSliderPosition(nodeSentValue) {
+            // Scale the node's `sent` value to the slider's range (0-slider.max)
+            const xScale = d3.scaleLinear()
+                .domain([d3.min(originalGraphData.nodes, d => d.sent), d3.max(originalGraphData.nodes, d => d.sent)])
+                .range([0, slider.max]);
+
+                // Calculate the corresponding slider position
+                slider.value = Math.round(xScale(nodeSentValue));  // Set the slider to the target value
+
+                // Trigger the 'input' event to simulate a manual slider interaction
+                slider.dispatchEvent(new Event("input")); 
+        }
+
+        function updateEdgeLabels(sliderValue, data) {
+            // Change edge labels based on the slider position.
+            svg.selectAll(".edge-label")
+                .text(function(d) {
+                    // For each edge, get the corresponding label based on slider value
+                    const sliderScale = d3.scaleLinear()
+                        .domain([0, slider.max])
+                        .range([d3.min(data.nodes, d => d.sent), d3.max(data.nodes, d => d.sent)]);
+                    const validRelations = d.id.filter(tuple => parseInt(tuple[1]) <= sliderScale(sliderValue));
+                    const sortedRelations = validRelations.sort((a, b) => parseInt(b[1]) - parseInt(a[1]));
+                    if (sortedRelations.length > 0){
+                        return sortedRelations[0][0];
+                    } else {
+                        return this.textContent;
+                    }
+
+                });
+        }
+
+        function updateNodeSize(sliderValue, data) {
+            const sliderScale = d3.scaleLinear()
+                .domain([0, slider.max])
+                .range([d3.min(data.nodes, d => d.sent), d3.max(data.nodes, d => d.sent)]);
+            
+            const scaledSliderValue = sliderScale(sliderValue);
+
+            svg.selectAll("circle")
+                .attr("r", function(d) {
+                    const boostHistoryLength = d.boost.filter(boost => boost <= scaledSliderValue).length;
+                    const newRadius = 20 * Math.log((boostHistoryLength)/2 + Math.E);
+                    return newRadius;
+                });
+        }
 
     </script>
 
